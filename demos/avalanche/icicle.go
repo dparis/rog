@@ -7,8 +7,8 @@ import (
 )
 
 const (
-    min_fall_delay = 50
-    max_fall_delay = 300
+    min_fall_delay = 50.0
+    max_fall_delay = 300.0
 )
 
 type Icicle struct {
@@ -19,6 +19,7 @@ type Icicle struct {
 }
 
 func NewIcicle(app App, x, y int) *Icicle {
+    fall_delay := (rand.Float64() * (max_fall_delay - min_fall_delay)) + min_fall_delay
     new_icicle := Icicle {
         Entity: Entity {
             x: x, y: y,
@@ -27,12 +28,12 @@ func NewIcicle(app App, x, y int) *Icicle {
             max_x: app.Width(),
             max_y: app.Height(),
 
-            fg: rog.DarkBlue,
+            fg: rog.White.Alpha(rog.Blue, 1 - (fall_delay / (min_fall_delay + max_fall_delay))),
             bg: rog.Black,
             glyph: 'V',
         },
         id: rand.Float64(),
-        fall_delay: time.Duration((rand.Float64() * (max_fall_delay - min_fall_delay)) + min_fall_delay) * time.Millisecond,
+        fall_delay: time.Duration(fall_delay) * time.Millisecond,
         timer: nil,
     }
 

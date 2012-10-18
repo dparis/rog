@@ -5,7 +5,6 @@ import (
     "time"
     "math"
     "math/rand"
-    "strconv"
     "github.com/ajhager/rog"
 )
 
@@ -160,7 +159,7 @@ func (self *AvalancheApp) GetSpawnCallback() func() {
 }
 
 func (self *AvalancheApp) SpawnTime() float64 {
-    return math.Max(self.spawn_time, float64(self.player.points) * .01)
+    return math.Max(self.spawn_time, float64(self.player.points) * .006)
 }
 
 func (self *AvalancheApp) StartSpawnTimer() {
