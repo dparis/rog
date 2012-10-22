@@ -1,6 +1,9 @@
 package main
 
+//import "fmt"
+
 import (
+//    "runtime"
     "github.com/ajhager/rog"
 )
 
@@ -10,8 +13,8 @@ type IEntity interface {
 }
 
 type Entity struct {
+    IEntity,
     Movable,
-    Renderable,
 
     x, y int
 
@@ -20,7 +23,6 @@ type Entity struct {
 
     fg, bg rog.RGB
     glyph rune
-
 }
 
 func (self *Entity) X() int { return self.x }
@@ -37,3 +39,12 @@ func (self *Entity) MaxY() int { return self.max_y }
 func (self *Entity) Fg() rog.RGB { return self.fg }
 func (self *Entity) Bg() rog.RGB { return self.bg }
 func (self *Entity) Glyph() rune { return self.glyph }
+
+func (self *Entity) Render() {
+    rog.Set(
+        self.X(), self.Y(),
+        self.Fg(), self.Bg(),
+        string(self.Glyph()),
+    )
+}
+

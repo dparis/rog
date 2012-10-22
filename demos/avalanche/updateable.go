@@ -1,5 +1,5 @@
 package main
 
 type Updatable interface {
-    Update() int
+    Update(app App) Messages
 }

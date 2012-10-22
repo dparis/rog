@@ -13,13 +13,6 @@ type Renderable interface {
     Fg() rog.RGB
     Bg() rog.RGB
     Glyph() rune
-}
-
-func Render(self Renderable) { 
-    rog.Set(
-        self.X(), self.Y(),
-        self.Fg(), self.Bg(),
-        string(self.Glyph()),
-    )
+    Render()
 }
 

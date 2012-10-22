@@ -2,7 +2,6 @@ package main
 
 import (
     "fmt"
-    "time"
     "math"
     "math/rand"
     "github.com/ajhager/rog"
@@ -11,26 +10,57 @@ import (
 const (
     screen_width = 40
     screen_height = 20
+    thirty_frames = 1000.0 / 120.0
 
+    avalanche_depth = -100
+    max_spawn_msecs = 300
+    min_spawn_msecs = 45
+    base_delay_decay = 90
+    delay_decay_factor = 1.9
 )
+
+var (
+    max = 0
+)
+
+type Clear struct { x, y int }
 
 type AvalancheApp struct {
     AppController
     entities []IEntity
     player *Player
+
+    frame_time float64
     delay_time float64
-    do_delay bool
-    spawn_time float64
-    do_spawn bool
+    ice_spawn_time float64
+
+    frame_timer Timer
+    delay_ticker *Ticker
+    ice_spawn_ticker *Ticker
+    boulder_spawn_ticker *Ticker
+
+    clears []Clear
+
+    debug bool
 }
 
-const (
-    _ = iota
-    UPDATE_REMOVE
-    UPDATE_COLLIDE
-)
+func (self *AvalancheApp) SpawnIcicle() {
+    pos := rand.Intn(self.Width() - 1)
+    new_icicle := NewIcicle(self, pos, 0)
+    self.entities = append(self.entities, new_icicle)
+}
 
-func (self *AvalancheApp) Run() {
+func (self *AvalancheApp) SpawnBoulder() {
+    new_boulder := NewBoulder(self)
+    self.entities = append(self.entities, new_boulder)
+}
+
+func (self *AvalancheApp) AddClear(x, y int) {
+    self.clears = append(self.clears, Clear{x, y})
+}
+
+
+ func (self *AvalancheApp) Run() {
     rog.Open(self.Width(), self.Height(), 1, false, self.Title(), nil)
 
     self.player = NewPlayer(
@@ -39,133 +69,135 @@ func (self *AvalancheApp) Run() {
         self.Height() - 1,
     )
   
-    self.StartDelayTimer()
-    self.StartSpawnTimer()
+    self.frame_timer = NewTimer(self.frame_time)
+            
+    self.delay_ticker = NewTicker(self.delay_time, func() {
+        // increase icicle spawn rate
+        self.ice_spawn_time -= 10.0
+        // after avalanche is over
+        self.delay_ticker.SetRate(self.delay_time)
+    })
 
+    self.ice_spawn_ticker = NewTicker(self.ice_spawn_time, func() {
+        self.SpawnIcicle()
+        self.ice_spawn_ticker.SetRate(math.Max(18, self.ice_spawn_time))
+    })
+
+    self.boulder_spawn_ticker = NewTicker(RandRangeFloat(1500, 2000), func() {
+        if self.ice_spawn_time > 40 {
+            self.SpawnBoulder()    
+        }
+        self.boulder_spawn_ticker.SetRate(RandRangeFloat(1500, 2000))
+    })
+
+    
     for rog.Running() {
-        self.Update()
-        self.Render()
-        rog.Flush()
+        if CheckTimer(self.frame_timer) {
+            self.Update()
+            self.HandleKeys()
+            self.Render()
+            rog.Flush()
+        }
     }
 }
 
 func (self *AvalancheApp) Render() {
-    for _, e := range self.entities {
-        var R = e
-        Render(R)
+    // clears
+    for _, c := range self.clears {
+        rog.Set(c.x, c.y, rog.Black, rog.Black, " ")
     }
-
-    P := self.player
-    Render(P)
-
-    // rog.Set(0, 2, rog.White, rog.Black, strconv.Itoa(self.player.points))
-    // rog.Set(0, 4, rog.White, rog.Black, fmt.Sprintf("%f", self.SpawnTime()))
-
+    self.clears = make([]Clear, 0)
+    // player
+    self.player.Render()
+    // entities (icicles)
+    for _, e := range self.entities {
+        e.Render()
+    }
+    // life bar
     for i := self.player.life; i > 0; i-- {
         rog.Set(2 * i, 1, rog.Green, rog.Green, " ")
+    }
+    // debug info
+    if self.debug {
+        rog.Set(0, 2, rog.White, rog.Black, fmt.Sprintf("Pts:%d", self.player.points))
+        rog.Set(0, 4, rog.White, rog.Black, fmt.Sprintf("Pos:%d, %d", self.player.x, self.player.y))
+        rog.Set(0, 6, rog.White, rog.Black, fmt.Sprintf("IceSpawn:%f.0", math.Max(self.ice_spawn_time, 5)))
+
     }
 }
 
 func (self *AvalancheApp) Update() {
-    removed := make([]int, 0)
-    for idx, e := range self.entities {
-        var U Updatable = e
-        remove := U.Update()
+    // reference current entities
+    entities := self.entities
+    // clear tracked entities
+    self.entities = make([]IEntity, 0)
+    // for each entity
+    for _, e := range entities {
+        keep := true
+        msgs := e.Update(self)
+        for _, msg := range msgs {
+            switch t := msg.(type) {
+                // award a point for removed entities
+                case MSG_REMOVE:
+                    self.player.points += 1
+                    keep = false
+                // track cleared tiles
+                case MSG_CLEAR:
+                    self.AddClear(t.x, t.y)
+            }
+        }
+
         if e.X() == self.player.X() && e.Y() == self.player.Y() {
             self.HandleCollision()
-            remove = UPDATE_REMOVE
-        }
-        
-        if remove == UPDATE_REMOVE {
-            removed = append(removed, idx)
+            keep = false
         }
 
+        if keep {
+            // keep tracking entity
+            self.entities = append(self.entities, e) 
+        }
+
     }
 
-    points := len(removed)
-
-    l := self.entities
-    for _, eidx := range removed {
-        l = l[:eidx+copy(l[eidx:], l[eidx+1:])]
-    }
-
-    self.entities = l
-
-    if self.do_spawn {
-        pos := rand.Intn(self.Width() - 1)
-        new_icicle := NewIcicle(self, pos, 0)
-        self.entities = append(self.entities, new_icicle)
-        self.do_spawn = false
-    }
-
-    if self.do_delay {
-        self.spawn_time -= 10.0
-        self.do_delay = false
-    }
-
-    if self.spawn_time < -100.0 {
-        self.spawn_time = 600 - (float64(self.player.points) * .1)
-        self.delay_time *= 1.5
+    if self.ice_spawn_time < avalanche_depth {
+        // reset spawn time
+        self.ice_spawn_time = max_spawn_msecs - (float64(self.player.points) * .1)
+        self.ice_spawn_ticker.SetRate(self.ice_spawn_time)
+        // increase dynamics rate
+        self.delay_time *= delay_decay_factor
+        self.delay_ticker.SetRate(self.delay_time)
+        // award player life
         self.player.life += 1
     }
 
-    self.HandleKeys()
-    self.HandlePoints(points)
 }
 
 func (self *AvalancheApp) HandleKeys() {
     switch rog.Key() {
         case rog.Esc:
             rog.Close()
-        case rog.Left:
-            MoveLeft(self.player)
-        case rog.Right:
-            MoveRight(self.player)
-    }        
-}
-
-func (self *AvalancheApp) HandlePoints(points int) {
-    self.player.points += points
+        case rog.Left, 'a':
+            x, y := MoveLeft(self.player)
+            self.AddClear(x, y)
+        case rog.Right,'s':
+            x, y := MoveRight(self.player)
+            self.AddClear(x, y)
+        case rog.Tab:
+            self.debug = !self.debug
+    }
 }
 
 func (self *AvalancheApp) HandleCollision() {
+    // clear the last hp icon
     rog.Set(2 * self.player.life, 1, rog.Black, rog.Black, " ")
+    // remove a life
     self.player.life -= 1
-
+    // print score and quit if player dies
     if self.player.life == 0 {
         fmt.Println("Your score:", self.player.points)
         rog.Close()
     }
 }
-
-func (self *AvalancheApp) GetDelayCallback() func() {
-    cb_delay := func () {
-        self.do_delay = true
-        self.StartDelayTimer()
-    }
-    return cb_delay
-}
-
-func (self *AvalancheApp) StartDelayTimer() {
-    time.AfterFunc(time.Duration(self.delay_time) * time.Millisecond, self.GetDelayCallback())
-}
-
-func (self *AvalancheApp) GetSpawnCallback() func() {
-    cb_spawn := func () {
-        self.do_spawn = true
-        self.StartSpawnTimer()
-    }
-    return cb_spawn
-}
-
-func (self *AvalancheApp) SpawnTime() float64 {
-    return math.Max(self.spawn_time, float64(self.player.points) * .006)
-}
-
-func (self *AvalancheApp) StartSpawnTimer() {
-    time.AfterFunc(time.Duration(self.SpawnTime()) * time.Millisecond, self.GetSpawnCallback())
-}
-
 
 func main() {
     app := AvalancheApp {
@@ -175,9 +207,18 @@ func main() {
         },
         make([]IEntity, 0),
         nil,
-        10.0,
-        false,
-        800.0,
+
+        thirty_frames,
+        base_delay_decay,
+        max_spawn_msecs,
+
+        nil,
+        nil,
+        nil,
+        nil,
+
+        make([]Clear, 0),
+
         false,
     }
     app.Run()
